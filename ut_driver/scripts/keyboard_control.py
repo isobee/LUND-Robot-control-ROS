@@ -87,6 +87,7 @@ class Driver(object):
 				ch = self.get_key()
 				self.process_key(ch)
 				self.update()
+				#if enough time has passed, print a new status
 				if (abs(self.prev_time - time.time()) > 0.5) and (ch != 'g'):
 					self.prev_time = time.time()
 					self.show_status()
@@ -99,10 +100,12 @@ class Driver(object):
 # Functions for getting and processing the keys
 	def get_key(self):
 		tty.setraw(sys.stdin.fileno())		
+		#check if there is data ready to be read in stdin (i.e. if a key has been pressed) 
+		#The int is the amount of time it will check for		
 		rlist, _, _ = select.select([sys.stdin], [], [], 1)
 		if rlist:			
 			key = sys.stdin.read(1)
-			#this is what allows the arrow keys to be taken in, as they are three chars		
+			#this is what allows the arrow keys to be taken in, as their escape codes are three chars		
 			if key == '\x1b':		
 				key = key + sys.stdin.read(2)
 				return key 
@@ -161,7 +164,7 @@ class Driver(object):
 
 # Used to print teleop status
 	def show_status(self):
-		msg = '\tStatus:\tlinear speed %.2f\tangular speed %.2f\tlinear direction %.2f\tangular direction %.2f'% (self.speed[0],self.speed[1], self.command[0], self.command[1])	
+		msg = 'Status:\tlinear speed %.2f\tangular speed %.2f\tlinear direction %.2f\tangular direction %.2f'% (self.speed[0],self.speed[1], self.command[0], self.command[1])	
 		if len(self.statuses) > 9:
 			self.statuses = self.statuses[1:]
 			
