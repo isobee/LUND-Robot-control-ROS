@@ -1,0 +1,20 @@
+def setup_logconf(scf):
+    log_conf = LogConfig(name='Lighthouse Position', period_in_ms=500) 
+    log_conf.add_variable('lighthouse.x', 'float')
+    log_conf.add_variable('lighthouse.y', 'float')
+    log_conf.add_variable('lighthouse.z', 'float')
+    scf.cf.log.add_config(log_conf)
+    return log_conf
+
+
+def get_cf_position(scf, log_conf):
+    print('getting crazyflie position')
+    with SyncLogger(scf, log_conf) as logger:
+        for log_entry in logger:
+            timestamp = log_entry[0]
+            data = log_entry[1]
+            logconf_name = log_entry[2]
+            #print('timestamp:%d \t logconf_name: %s' % (timestamp, logconf_name))
+            #print('lighthouse.x = %s, lighthouse.y = %s, lighthouse.z = %s' % (data['lighthouse.x'], data['lighthouse.y'], data['lighthouse.z']))
+            break 
+    return {'x':data['lighthouse.x'], 'y':data['lighthouse.y'], 'z':data['lighthouse.z']} 
