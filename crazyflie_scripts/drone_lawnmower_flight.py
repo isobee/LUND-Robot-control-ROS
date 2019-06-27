@@ -3,17 +3,23 @@
 import sys
 import time
 import math 
-from threading import Timer
-
 import openvr
+
+from threading import Timer
+from threading import Thread 
 
 import cflib.crtp
 from cflib.crazyflie import Crazyflie
 from cflib.crazyflie.log import LogConfig
 from cflib.crazyflie.syncCrazyflie import SyncCrazyflie
 from cflib.crazyflie.syncLogger import SyncLogger
-from cflib.crazyflie.mem import MemoryElement
-from cflib.crazyflie.mem import Poly4D
+
+#This is the logger class
+from log_conf import my_Logger
+
+# This was imported for testing swarm functionality
+from cflib.crazyflie.swarm import CachedCfFactory
+from cflib.crazyflie.swarm import Swarm
 
 #open the VR driver
 print('Opening VR driver')
@@ -86,6 +92,8 @@ def wait_for_position_estimator(cf):
             min_z = min(var_z_history)
             max_z = max(var_z_history)
 
+            #print(max_x-min_x, max_y - min_y, max_z - min_z)
+
             if (max_x - min_x) < threshold and (
                     max_y - min_y) < threshold and (
                     max_z - min_z) < threshold:
@@ -101,65 +109,27 @@ def reset_estimator(scf):
 
     wait_for_position_estimator(cf)
     
-
-
-def setup_logconf(scf):
-    log_conf = LogConfig(name='Lighthouse Position', period_in_ms=10) 
-    log_conf.add_variable('lighthouse.x', 'float')
-    log_conf.add_variable('lighthouse.y', 'float')
-    log_conf.add_variable('lighthouse.z', 'float')
-    scf.cf.log.add_config(log_conf)
-    return log_conf
-
-
-def get_cf_position(scf, log_conf):
-    print('getting crazyflie position')
-    with SyncLogger(scf, log_conf) as logger:
-        for log_entry in logger:
-            timestamp = log_entry[0]
-            data = log_entry[1]
-            logconf_name = log_entry[2]
-            #print('timestamp:%d \t logconf_name: %s' % (timestamp, logconf_name))
-            #print('lighthouse.x = %s, lighthouse.y = %s, lighthouse.z = %s' % (data['lighthouse.x'], data['lighthouse.y'], data['lighthouse.z']))
-            break 
-    return {'x':data['lighthouse.x'], 'y':data['lighthouse.y'], 'z':data['lighthouse.z']} 
-            
-def get_controller_position(controllerId):
-    poses = vr.getDeviceToAbsoluteTrackingPose(openvr.TrackingUniverseStanding, 0, openvr.k_unMaxTrackedDeviceCount)
-    controller_pose = poses[controllerId]
-    pose = controller_pose.mDeviceToAbsoluteTracking
-    print (pose) 
-    return pose
-
-def create_flight_path(initial_position, final_position):
+def create_flight_path(initial_position):
     initial_position['yaw'], initial_position['time'] = 0.0, 4.0 
-    final_position['yaw'], final_position['time'] = 0.0, 2.0
     
-    #set the height the drone will hover at before landing, and hover after takeoff. 
-    landing_height = 0.3
+    #set the height the drone will hover at after takeoff. 
     hover_height = 0.5 
-    final_position['z'] = final_position['z'] + landing_height
     initial_position['z'] = initial_position['z'] + hover_height
 
     flight_path = [initial_position]
 
 
     #enter where you would like the drone to fly to {'x':x, 'y':y, 'z':z, 'yaw':yaw, 'time':time}
-    manual_sequence = [{'x':0.0, 'y':0.0, 'z':0.7, 'yaw':0.0, 'time':3.0},
-                       {'x':0.5, 'y':0.0, 'z':0.7, 'yaw':0.0, 'time':3.0},
-                       {'x':0.5, 'y':0.5, 'z':0.7, 'yaw':0.0, 'time':3.0},
-                       {'x':0.0, 'y':0.5, 'z':0.7, 'yaw':0.0, 'time':3.0}]
-    #if (len(manual_sequence) > 0):
-       # flight_path.extend(manual_sequence)
+    manual_sequence = [{'x':-0.2, 'y':0.4, 'z':0.7, 'yaw':0.0, 'time':3.0},
+                       ]
+    if (len(manual_sequence) > 0):
+        flight_path.extend(manual_sequence)
 
     
     # allow the users to add coordinates
-    add = input("Would you like to input more coordinates? (y/n)")
+    add = 'n' #input("Would you like to input more coordinates? (y/n)")
     if add == 'y':
         flight_path = add_coordinates(flight_path)
-
-    flight_path.append(final_position)
-    print("Final Flight_path, ", flight_path)
 
     return flight_path
         
@@ -190,7 +160,7 @@ def add_coordinates(flight_path, add):
     
 
 # causes the crazyflie to hover 1.0 above the initial position
-def take_off(cf, initial_position, hover_height = 0.5, take_off_time = 1.0, sleep_time = 0.1):
+def take_off(cf, hover_height = 0.5, take_off_time = 1.0, sleep_time = 0.1):
     print('taking off')
     steps = int(take_off_time / sleep_time)
     vz = (hover_height) / take_off_time
@@ -199,15 +169,30 @@ def take_off(cf, initial_position, hover_height = 0.5, take_off_time = 1.0, slee
         cf.commander.send_velocity_world_setpoint(0, 0, vz, 0)
         time.sleep(sleep_time)
 
-# sends the crazyflie to position, and kills power
-def land(cf, final_position, landing_height = 0.3, landing_time = 1.0, sleep_time = 0.1):
+
+
+def land(cf, lawn_logger):
+    landing_height = 0.3 
+    sleep_time = 0.1
+    hover_time = 3.0
+    landing_time = 3.0
+    offset_x = 0.125
+    offset_y = 0.125
+
     print('landing')
-    
-    end_time = time.time() + landing_time
+
+    landing_position = lawn_logger.get_lighthouse_pos()
+    landing_position['x'] = landing_position['x']+offset_x
+    landing_position['y'] = landing_position['y']+offset_y
+
+
+    print('retrieved landing position, landing at', landing_position)
+
+    end_time = time.time() + hover_time 
     while time.time() < end_time:
-        cf.commander.send_position_setpoint(final_position['x'], final_portion['y'], final_position['z'], final_position['yaw'])
-                time.sleep(0.01)
-    
+        cf.commander.send_position_setpoint(landing_position['x'],landing_position['y'],landing_position['z']+landing_height, 0.0)
+        time.sleep(0.01)
+
     steps = int(landing_time / sleep_time)
     vz = -landing_height / landing_time
     for i in range(steps):
@@ -215,20 +200,21 @@ def land(cf, final_position, landing_height = 0.3, landing_time = 1.0, sleep_tim
         time.sleep(sleep_time)
 
 
-def run_sequence(scf, flight_path):
+def run_sequence(scf, scf2, flight_path, cf_logger, lawn_logger):
     try:
         cf = scf.cf
 
-        take_off(cf, flight_path[0])
+        take_off(cf)
         
         for coordinate in flight_path: 
             print("Going to (%s,%s,%s), yaw %s for %s seconds" % (coordinate['x'],coordinate['y'],coordinate['z'], coordinate['yaw'], coordinate['time']))
             end_time = time.time() + coordinate['time']
             while time.time() < end_time:
-                cf.commander.send_position_setpoint(coordinate['x'],coordinate['y'],coordinate['z'],coordinate['yaw'])
-                time.sleep(0.01)
+                cf.commander.send_position_setpoint(coordinate['x'],coordinate['y'],coordinate['z'], coordinate['yaw'])
+                time.sleep(0.01)   
+            print("Crazyflie thinks it is at:", cf_logger.get_lighthouse_pos())
 
-        land(cf, flight_path[-1])
+        land(cf, lawn_logger)
         
         cf.commander.send_stop_setpoint()
         # Make sure that the last packet leaves before the link is closed
@@ -243,18 +229,21 @@ if __name__ == '__main__':
     cflib.crtp.init_drivers(enable_debug_driver=False)
     
     # find URI of the Crazyflie to connect to
-    uri = find_drones()
+    uri = 'radio://0/80/2M'
+    uri2 = 'radio://0/40/2M'
 
-    with SyncCrazyflie(uri, cf=Crazyflie(rw_cache='./cache')) as scf:
+    with SyncCrazyflie(uri, cf=Crazyflie(rw_cache='./cache')) as scf: 
+        with SyncCrazyflie(uri2, cf=Crazyflie(rw_cache='./cache')) as scf2:
         #Check that the position estimate is calibrated
-        reset_estimator(scf)
-        #Setup a configuration that will log lighthouse positioning data 
-        lighthouse_log_conf = setup_logconf(scf)
-        initial_position = get_cf_position(scf, lighthouse_log_conf)
-        final_position = initial_position.copy()
-        flight_path = create_flight_path(initial_position, final_position)
-        #print initial_position
-        run_sequence(scf, flight_path)
+            reset_estimator(scf)
+            reset_estimator(scf2)
+            #Setup a configuration that will log lighthouse positioning data 
+            cf_logger = my_Logger(scf, uri)
+            lawn_logger = my_Logger(scf2, uri2)
+            initial_position = cf_logger.get_lighthouse_pos()
+            print(initial_position)
+            flight_path = create_flight_path(initial_position)
+            run_sequence(scf, scf2, flight_path, cf_logger, lawn_logger)
 
 
 print('shutting down openVR')

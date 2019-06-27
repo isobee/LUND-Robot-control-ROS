@@ -20,40 +20,54 @@ print('Opening VR driver')
 vr = openvr.init(openvr.VRApplication_Other)
 print('Opened VR driver')
 
-def find_drones():
-    print('Scanning interfaces for Crazyflies...')
-    available = cflib.crtp.scan_interfaces()
-    print('Crazyflies found:')
-    count = 0
-    if len(available) == 1:
-        print("One drone found with URI [%s] and name/comment [%s]"%(available[0][0], available[0][1]))
-        return available[0][0]
+#Find Drones 
+print('Scanning interfaces for Crazyflies...')
+available = cflib.crtp.scan_interfaces()
+uris = []
     
-    elif len(available) > 1:
-        for i in available:
-            print ("%s. Interface with URI [%s] found and name/comment [%s]" % ((str(count)), i[0], i[1]))
-            count = count + 1 
-        num = int(input("Chose your drone "))
-        return available[num][0]
+if len(available) > 0:
+    for i in available:
+        print ("Interface with URI [%s] found and name/comment [%s]" % (i[0], i[1]))
+else:
+    print('No Crazyflies found, cannot run')
+    sys.exit(1)	
+
+URI0 = available[0][0]
+URI1 = available[1][0]
+
+uris = {
+    URI0,
+    URI1,
+}
+
+
+# sequences are (x,y,z,yaw,time)
+default_sequence = [(0.0,0.0,0.0,0.0, 0.0)]
+
+x0 = 0.5
+y0 = -0.5
+z0 = 0.7 
+
+
+sequence0 = [
+    (x0, y0, z0, 0.0, 3.0),
+    (x0, y0, z0, 0.0, 2.0),
+    (x0, y0, z0, 0.0, 3.0),
+]
+sequence1 = [
+    (x0, y0, z0, 0.0, 3.0),
+    (x0, y0, z0, 0.0, 2.0),
+    (x0, y0, z0, 0.0, 3.0),
+]
+
+
+seq_args{URI} = {
+    URI0:sequence0,
+    URI1:sequence1,
+}
+
+
     
-    else:
-        print('No Crazyflies found, cannot run')
-        sys.exit(1)	
-
-def find_controller():
-    controllerId = None
-    poses = vr.getDeviceToAbsoluteTrackingPose(openvr.TrackingUniverseStanding, 0, openvr.k_unMaxTrackedDeviceCount)
-    for i in range(openvr.k_unMaxTrackedDeviceCount):
-        if poses[i].bPoseIsValid:
-            device_class = vr.getTrackedDeviceClass(i)
-            if device_class == openvr.TrackedDeviceClass_Controller or device_class == openvr.TrackedDeviceClass_GenericTracker:
-                controllerId = i
-                break
-    if controllerId is None:
-        print('Cannot find controller or tracker, exiting')
-        sys.exit(1)
-    return controllerId
-
 
 def wait_for_position_estimator(cf):
     print('Waiting for estimator to find position...')
@@ -124,71 +138,7 @@ def get_cf_position(scf, log_conf):
             #print('lighthouse.x = %s, lighthouse.y = %s, lighthouse.z = %s' % (data['lighthouse.x'], data['lighthouse.y'], data['lighthouse.z']))
             break 
     return {'x':data['lighthouse.x'], 'y':data['lighthouse.y'], 'z':data['lighthouse.z']} 
-            
-def get_controller_position(controllerId):
-    poses = vr.getDeviceToAbsoluteTrackingPose(openvr.TrackingUniverseStanding, 0, openvr.k_unMaxTrackedDeviceCount)
-    controller_pose = poses[controllerId]
-    pose = controller_pose.mDeviceToAbsoluteTracking
-    print (pose) 
-    return pose
-
-def create_flight_path(initial_position, final_position):
-    initial_position['yaw'], initial_position['time'] = 0.0, 4.0 
-    final_position['yaw'], final_position['time'] = 0.0, 2.0
-    
-    #set the height the drone will hover at before landing, and hover after takeoff. 
-    landing_height = 0.3
-    hover_height = 0.5 
-    final_position['z'] = final_position['z'] + landing_height
-    initial_position['z'] = initial_position['z'] + hover_height
-
-    flight_path = [initial_position]
-
-
-    #enter where you would like the drone to fly to {'x':x, 'y':y, 'z':z, 'yaw':yaw, 'time':time}
-    #manual_sequence = [{'x':0.01, 'y':0.0, 'z':0.7, 'yaw':0.0, 'time':4.0},
-     #                  {'x':0.5, 'y':0.0, 'z':1.7, 'yaw':0.0, 'time':4.0},
-      #                 {'x':-0.5, 'y':0.0, 'z':0.7, 'yaw':0.0, 'time':4.0},
-       #                {'x':0.0, 'y':0.0, 'z':1.0, 'yaw':0.0, 'time':4.0}]
-   # if (len(manual_sequence) > 0):
-    #    flight_path.extend(manual_sequence)
-
-    
-    # allow the users to add coordinates
-    add = input("Would you like to input more coordinates? (y/n)")
-    if add == 'y':
-        flight_path = add_coordinates(flight_path)
-
-    flight_path.append(final_position)
-    print("Final Flight_path, ", flight_path)
-
-    return flight_path
-        
-    
-def add_coordinates(flight_path, add):
-    print("Current flight path: ", flight_path)
-    while add == 'y':
-        try:
-            x = input("x-coordinate ")
-            y = float(input("y-coordinate "))
-            z = float(input("z-coordinate "))
-            yaw = float(input("yaw "))
-            time = input("time ")
-            new_coordinate = {'x':x, 'y':y, 'z':z, 'yaw':yaw, 'time':time}
-            index = int(input("index "))
-            if index > length(flight_path):
-                print("Not a valid index, adding to end of list")
-                flight_path.append(new_coordinate)
-            else:
-                flight_path.insert(index,new_coordinate)
-            print ("This is the current flight path: ", flight_path)
-        except:
-            print("You input your coordinate incorrectly")
-        add = input("Continue adding coordinates? (y/n)")
-    return flight_path
-        
-
-    
+                
 
 # causes the crazyflie to hover 1.0 above the initial position
 def take_off(cf, initial_position, hover_height = 0.5, take_off_time = 1.0, sleep_time = 0.1):
@@ -209,46 +159,44 @@ def land(cf, final_position, landing_height = 0.3, landing_time = 1.0, sleep_tim
         cf.commander.send_velocity_world_setpoint(0, 0, vz, 0)
         time.sleep(sleep_time)
 
-def run_sequence(scf, flight_path):
+def run_sequence(scf, sequence):
     try:
         cf = scf.cf
 
-        take_off(cf, flight_path[0])
-        
-        for coordinate in flight_path: 
-            print("Going to (%s,%s,%s), yaw %s for %s seconds" % (coordinate['x'],coordinate['y'],coordinate['z'], coordinate['yaw'], coordinate['time']))
-            end_time = time.time() + coordinate['time']
+        take_off(cf, sequence[0])
+        for position in sequence:
+            print('Setting position {}'.format(position))
+            end_time = time.time() + position[3]
             while time.time() < end_time:
-                cf.commander.send_position_setpoint(coordinate['x'],coordinate['y'],coordinate['z'],coordinate['yaw'])
-                time.sleep(0.01)
-
-        land(cf, flight_path[-1])
-        
-        cf.commander.send_stop_setpoint()
-        # Make sure that the last packet leaves before the link is closed
-        # since the message queue is not flushed before closing
-        time.sleep(0.1)
+                cf.commander.send_position_setpoint(position[0],
+                                                    position[1],
+                                                    position[2], 0)
+                time.sleep(0.1)
+        land(cf, sequence[-1])
     except Exception as e:
-        print("Error: ", e)
+        print(e)
 
 
-if __name__ == '__main__':	
-    #Must intialize the drivers
+if __name__ == '__main__':
+    # logging.basicConfig(level=logging.DEBUG)
     cflib.crtp.init_drivers(enable_debug_driver=False)
-    
-    # find URI of the Crazyflie to connect to
-    uri = find_drones()
 
-    with SyncCrazyflie(uri, cf=Crazyflie(rw_cache='./cache')) as scf:
-        #Check that the position estimate is calibrated
-        reset_estimator(scf)
-        #Setup a configuration that will log lighthouse positioning data 
-        lighthouse_log_conf = setup_logconf(scf)
-        initial_position = get_cf_position(scf, lighthouse_log_conf)
-        final_position = initial_position.copy()
-        flight_path = create_flight_path(initial_position, final_position)
-        #print initial_position
-        run_sequence(scf, flight_path)
+    factory = CachedCfFactory(rw_cache='./cache')
+    with Swarm(uris, factory=factory) as swarm:
+        # If the copters are started in their correct positions this is
+        # probably not needed. The Kalman filter will have time to converge
+        # any way since it takes a while to start them all up and connect. We
+        # keep the code here to illustrate how to do it.
+        # swarm.parallel(reset_estimator)
+
+        # The current values of all parameters are downloaded as a part of the
+        # connections sequence. Since we have 10 copters this is clogging up
+        # communication and we have to wait for it to finish before we start
+        # flying.
+        print('Waiting for parameters to be downloaded...')
+        swarm.parallel(wait_for_param_download)
+
+        swarm.parallel(run_sequence, args_dict=seq_args)
 
 
 print('shutting down openVR')
