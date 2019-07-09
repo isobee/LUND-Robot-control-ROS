@@ -1,8 +1,16 @@
 #!/usr/bin/env -u python3
-# Gets lighthouse position coordinates from a crazyflie. 
+
+""" This script requires two crazyflie drones
+One drone does not fly, while the other runs through
+a flight path, before landing next to the other drone. 
+In theory, the drone which stays 'still' is in fact 
+mounted on the Husqvarna Lawnmower, which is used as 
+a mobile drone platform"""
+
+
+
 import sys
 import time
-import math 
 import openvr
 
 from threading import Timer
@@ -20,11 +28,6 @@ from log_conf import my_Logger
 # This was imported for testing swarm functionality
 from cflib.crazyflie.swarm import CachedCfFactory
 from cflib.crazyflie.swarm import Swarm
-
-#open the VR driver
-print('Opening VR driver')
-vr = openvr.init(openvr.VRApplication_Other)
-print('Opened VR driver')
 
 def find_drones():
     print('Scanning interfaces for Crazyflies...')
@@ -44,21 +47,6 @@ def find_drones():
     else:
         print('No Crazyflies found, cannot run')
         sys.exit(1)	
-
-def find_controller():
-    controllerId = None
-    poses = vr.getDeviceToAbsoluteTrackingPose(openvr.TrackingUniverseStanding, 0, openvr.k_unMaxTrackedDeviceCount)
-    for i in range(openvr.k_unMaxTrackedDeviceCount):
-        if poses[i].bPoseIsValid:
-            device_class = vr.getTrackedDeviceClass(i)
-            if device_class == openvr.TrackedDeviceClass_Controller or device_class == openvr.TrackedDeviceClass_GenericTracker:
-                controllerId = i
-                break
-    if controllerId is None:
-        print('Cannot find controller or tracker, exiting')
-        sys.exit(1)
-    return controllerId
-
 
 def wait_for_position_estimator(cf):
     print('Waiting for estimator to find position...')
@@ -110,7 +98,7 @@ def reset_estimator(scf):
     wait_for_position_estimator(cf)
     
 def create_flight_path(initial_position):
-    initial_position['yaw'], initial_position['time'] = 0.0, 4.0 
+    initial_position['yaw'], initial_position['time'] = 0.0, 1.0 
     
     #set the height the drone will hover at after takeoff. 
     hover_height = 0.5 
@@ -120,7 +108,11 @@ def create_flight_path(initial_position):
 
 
     #enter where you would like the drone to fly to {'x':x, 'y':y, 'z':z, 'yaw':yaw, 'time':time}
-    manual_sequence = [{'x':-0.2, 'y':0.4, 'z':0.7, 'yaw':0.0, 'time':3.0},
+    manual_sequence = [{'x':-0.5, 'y':0.5, 'z':0.7, 'yaw':0.0, 'time':3.0},
+                       {'x': 0.5, 'y':0.5, 'z':0.7, 'yaw':0.0, 'time':3.0},
+                       {'x': 0.5, 'y':-0.5, 'z':0.7, 'yaw':0.0, 'time':3.0},
+                       {'x':-0.5, 'y':-0.5, 'z':0.7, 'yaw':0.0, 'time':3.0},
+                       {'x': 0.0, 'y': 0.0, 'z':1.2, 'yaw':0.0, 'time':3.0},
                        ]
     if (len(manual_sequence) > 0):
         flight_path.extend(manual_sequence)
@@ -170,27 +162,26 @@ def take_off(cf, hover_height = 0.5, take_off_time = 1.0, sleep_time = 0.1):
         time.sleep(sleep_time)
 
 
-
 def land(cf, lawn_logger):
-    landing_height = 0.3 
+    landing_height = 0.2 
     sleep_time = 0.1
     hover_time = 3.0
-    landing_time = 3.0
-    offset_x = 0.125
-    offset_y = 0.125
+    landing_time = 1.0
+    offset_x = 0.07
+    offset_y = 0.07
+    threshold = 0.05 
 
     print('landing')
-
-    landing_position = lawn_logger.get_lighthouse_pos()
-    landing_position['x'] = landing_position['x']+offset_x
-    landing_position['y'] = landing_position['y']+offset_y
-
-
+    landing_position = lawn_logger.get_landing_pos(offset_x, offset_y)
     print('retrieved landing position, landing at', landing_position)
 
     end_time = time.time() + hover_time 
     while time.time() < end_time:
         cf.commander.send_position_setpoint(landing_position['x'],landing_position['y'],landing_position['z']+landing_height, 0.0)
+        lawn_position = lawn_logger.get_landing_pos(offset_x, offset_y)
+        if (abs(lawn_position['x'] - landing_position['x']) > threshold) \
+            or (abs(lawn_position['x'] - landing_position['x']) > threshold):
+            landing_position = lawn_position.copy() 
         time.sleep(0.01)
 
     steps = int(landing_time / sleep_time)
@@ -228,25 +219,31 @@ if __name__ == '__main__':
     #Must intialize the drivers
     cflib.crtp.init_drivers(enable_debug_driver=False)
     
-    # find URI of the Crazyflie to connect to
-    uri = 'radio://0/80/2M'
-    uri2 = 'radio://0/40/2M'
+    # set the URI of the two crazyflies
+    uri2 = 'radio://0/80/2M' #find_drones()
+    uri = 'radio://0/40/2M'#find_drones()
 
     with SyncCrazyflie(uri, cf=Crazyflie(rw_cache='./cache')) as scf: 
         with SyncCrazyflie(uri2, cf=Crazyflie(rw_cache='./cache')) as scf2:
-        #Check that the position estimate is calibrated
+        #Check that the position estimates are calibrated
             reset_estimator(scf)
             reset_estimator(scf2)
             #Setup a configuration that will log lighthouse positioning data 
             cf_logger = my_Logger(scf, uri)
             lawn_logger = my_Logger(scf2, uri2)
-            initial_position = cf_logger.get_lighthouse_pos()
-            print(initial_position)
-            flight_path = create_flight_path(initial_position)
-            run_sequence(scf, scf2, flight_path, cf_logger, lawn_logger)
+            running = input("start running? (y/n) ")
+            while running == 'y':
+                initial_position = cf_logger.get_lighthouse_pos()
+                print(initial_position)
+                flight_path = create_flight_path(initial_position)
+                run_sequence(scf, scf2, flight_path, cf_logger, lawn_logger)
+                running = input('Would you like to run again? (y/n)')
+                if running == 'y':
+                    swap = input('Would you like to swap drones? (y/n)')
+                    if swap == 'y':
+                        run_sequence(scf2, scf, flight_path, lawn_logger, cf_logger)
+                        break
 
 
-print('shutting down openVR')
-openvr.shutdown()
-print('openVR has shutdown')
+
 

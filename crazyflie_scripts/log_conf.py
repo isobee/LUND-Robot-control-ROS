@@ -52,3 +52,9 @@ class my_Logger:
         # y and z swap, for some reason 
         position = {'x':(-data['lighthouse.z']), 'y':(-data['lighthouse.x']), 'z':data['lighthouse.y']}
         return position
+    
+    def get_landing_pos(self, offset_x, offset_y):
+        landing_position = self.get_lighthouse_pos()
+        landing_position['x'] = landing_position['x']+offset_x
+        landing_position['y'] = landing_position['y']+offset_y
+        return landing_position

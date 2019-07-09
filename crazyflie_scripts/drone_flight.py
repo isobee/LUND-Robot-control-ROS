@@ -15,10 +15,7 @@ from cflib.crazyflie.syncLogger import SyncLogger
 from cflib.crazyflie.mem import MemoryElement
 from cflib.crazyflie.mem import Poly4D
 
-#open the VR driver
-print('Opening VR driver')
-vr = openvr.init(openvr.VRApplication_Other)
-print('Opened VR driver')
+
 
 def find_drones():
     print('Scanning interfaces for Crazyflies...')
@@ -239,6 +236,12 @@ def run_sequence(scf, flight_path):
 
 
 if __name__ == '__main__':	
+    
+    #open the VR driver, only necessary if using VR controller
+    print('Opening VR driver')
+    vr = openvr.init(openvr.VRApplication_Other)
+    print('Opened VR driver')
+    
     #Must intialize the drivers
     cflib.crtp.init_drivers(enable_debug_driver=False)
     
@@ -256,8 +259,7 @@ if __name__ == '__main__':
         #print initial_position
         run_sequence(scf, flight_path)
 
-
-print('shutting down openVR')
-openvr.shutdown()
-print('openVR has shutdown')
+    print('shutting down openVR')
+    openvr.shutdown()
+    print('openVR has shutdown')
 
